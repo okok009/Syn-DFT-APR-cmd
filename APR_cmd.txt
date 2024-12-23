@@ -1,0 +1,194 @@
+<<apr>>
+===========================
+setup
+===========================
+set CHIP_LIB "FAS_APR"
+set TOP "FAS"
+set TF "/cad/CBDK/CBDK_IC_Contest_v2.5/Astro/tsmc13_CIC.tf"
+set CORE_LIB "/cad/CBDK/CBDK_IC_Contest_v2.5/Astro/tsmc13gfsg_fram"
+set GATE_NET "./new/part1/FAS_syn_10_dft.v"
+set SDC "FAS_pr_10.sdc"
+set TLU "/cad/CBDK/CBDK_IC_Contest_v2.5/Astro/tluplus/t013s8mg_fsg_typical.tluplus"
+set MAP "/cad/CBDK/CBDK_IC_Contest_v2.5/Astro/tluplus/t013s8mg_fsg.map"
+
+<<此步不確定 都用gui按>>
+create_mw_lib -technology $TF -mw_reference_library $CORE_LIB -bus_naming_style [%d] -open $CHIP_LIB
+
+import_designs -format verilog -top $TOP -cel $TOP $GATE_NET
+set_tlu_plus_files -max_tluplus $TLU -tech2itf_map $MAP
+source $SDC
+set_fix_multiple_port_nets -all -buffer_constants
+set case_analysis_with_logic_constrants true
+set_zero_interconnect_delay_mode true
+report_timing
+set_zero_interconnect_delay_mode false
+save_mw_cel -design [format "%s%s" $TOP ".CEL;1"]
+save_mw_cel -design [format "%s%s" $TOP ".CEL;1"] -as "design_setup"
+
+===========================
+preroute (包含floorplan, powerplan)
+===========================
+set CORE_PAD_SPACE 10
+create_floorplan -core_aspect_ratio 1 -core_utilization 0.7 -flip_first_row -left_io2core $CORE_PAD_SPACE -right_io2core $CORE_PAD_SPACE -bottom_io2core $CORE_PAD_SPACE -top_io2core $CORE_PAD_SPACE
+create_fp_placement -effort high -timing_driven -congestion_driven
+derive_pg_connection -power_net "VDD" -ground_net "VSS" -power_pin "VDD" -ground_pin "VSS"
+set_fp_rail_constraints -add_layer -layer METAL5 -direction horizontal -max_strap 1 -min_strap 1 -max_width 2 -min_width 2 -spacing minimum
+set_fp_rail_constraints -add_layer -layer METAL4 -direction vertical -max_strap 1 -min_strap 1 -max_width 2 -min_width 2 -spacing minimum
+set_fp_rail_constraints -set_ring -nets {VDD VSS} -horizontal_ring_layer METAL5 -vertical_ring_layer METAL4 -ring_width 2 -ring_spacing 2 -ring_offset 2 -extend_strap core_ring
+set_fp_rail_constraints -set_global -no_routing_over_hard_macros -no_same_width_sizing -keep_ring_outside_core
+synthesize_fp_rail -nets {VDD VSS} -voltage_supply 1.2 -synthesize_power_plan -power_budget 30 -use_pins_as_pads -use_strap_ends_as_pads -ignore_blockages
+commit_fp_rail
+save_mw_cel -design [format "%s%s" $TOP ".CEL;1"]
+save_mw_cel -design [format "%s%s" $TOP ".CEL;1"] -as "design_planning"
+preroute_instances -ignore_pads -ignore_cover_cells -primary_routing_layer pin
+preroute_standard_cells -extend_for_multiple_connections -extension_gap 16 -connect horizontal -remove_floating_pieces -do_not_route_over_macros -fill_empty_rows -port_filter_mode off -cell_master_filter_mode off -cell_instance_filter_mode off -voltage_area_filter_mode off -route_type {P/G Std. Cell Pin Conn}
+set_pnet_options -partial {METAL5 METAL4}
+create_fp_placement -effort high -timing_driven -congestion_driven -incremental all
+derive_pg_connection -power_net "VDD" -ground_net "VSS" -power_pin "VDD" -ground_pin "VSS"
+set_zero_interconnect_delay_mode true
+report_timing
+set_zero_interconnect_delay_mode false
+save_mw_cel -design [format "%s%s" $TOP ".CEL;1"]
+save_mw_cel -design [format "%s%s" $TOP ".CEL;1"] -as "preroute"
+
+===========================
+placement (過程中真的要去看Scan Chain的布局)
+===========================
+read_def ./new/part1/FAS_10_dft.def
+report_scan_chain
+check_scan_chain
+check_physical_design -for_placement
+check_physical_constraints
+connect_tie_cells -tie_high_lib_cell TIEHI -tie_low_lib_cell TIELO -max_fanout 5 -obj_type cell_inst -objects [get_cells -hier *]
+place_opt -effort high -optimize_dft -congestion -power
+derive_pg_connection -power_net "VDD" -ground_net "VSS" -power_pin "VDD" -ground_pin "VSS"
+
+----------------------
+<<若對congestion不滿意再修>>
+refine_placement -perturbation_lecl high -congestion_effort high
+
+<<以下建議到cts再修>>
+set_fix_hold [all_clocks]
+psynopt
+report_timing -delay_type min
+report_timing
+
+<<執行下方report後觀察vio是哪種 如果只是timing 就等cts再修 若不是則回到上面重新place_opt>>
+report_constraints -all
+psynopt -only_design_rule
+----------------------
+
+derive_pg_connection -power_net "VDD" -ground_net "VSS" -power_pin "VDD" -ground_pin "VSS"
+save_mw_cel -design [format "%s%s" $TOP ".CEL;1"]
+save_mw_cel -design [format "%s%s" $TOP ".CEL;1"] -as "placement"
+
+===========================
+cts
+===========================
+check_physical_design -stage pre_clock_opt
+check_clock_tree
+report_clock
+report_clock -skew
+report_clock_tree -summary
+
+----------------------
+<<此步是必須執行 只是增加補充說明>>
+<<其中的-operating_condition min 可以第二次再來加 主要是有hold time vio再加>>
+clock_opt -fix_hold_all_clocks -congestion -optimize_dft -no_clock_route -operating_condition min
+----------------------
+
+derive_pg_connection -power_net "VDD" -ground_net "VSS" -power_pin "VDD" -ground_pin "VSS"
+report_clock_tree -summary
+report_timing
+report_timing -delay_type min
+report_constraints -all
+
+----------------------
+<<若跑完timing沒過 可以再跑一次clock_opt 這次加上-only_psyn 或optimize_clock_tree>>
+1. clock_opt -only_psyn -fix_hold_all_clocks -congestion -no_clock_route
+2. optimize_clock_tree -buffer_sizing -buffer_relocation -gate_sizing -gate_relocation -delay_insertion -search_repair_loop 2 -operating_condition max -routed_clock_stage None
+derive_pg_connection -power_net "VDD" -ground_net "VSS" -power_pin "VDD" -ground_pin "VSS"
+report_clock_tree -summary
+report_timing
+report_timing -delay_type min
+report_constraints -all
+----------------------
+
+derive_pg_connection -power_net "VDD" -ground_net "VSS" -power_pin "VDD" -ground_pin "VSS"
+save_mw_cel -design [format "%s%s" $TOP ".CEL;1"]
+save_mw_cel -design [format "%s%s" $TOP ".CEL;1"] -as "cts"
+
+===========================
+routing
+===========================
+check_routeability -error_cell routeability_error.err
+set_route_mode_options -zroute true
+set_route_zrt_common_options -post_detail_route_redundant_via_insertion high -concurrent_redundant_via_mode insert_at_high_cost -concurrent_redundant_via_effort_level high
+source /cad/CBDK/CBDK_IC_Contest_v2.5/Astro/antenna_CIC.clf
+set_route_zrt_detail_options -diode_libcell_names ANTENNA -insert_diodes_during_routing true
+route_zrt_group -all_clock_nets
+route_zrt_auto
+derive_pg_connection -power_net "VDD" -ground_net "VSS" -power_pin "VDD" -ground_pin "VSS"
+report_timing
+report_timing -delay_type min
+
+----------------------
+<<此為第二次繞線。在第一次繞線(route_zrt_auto)後，若沒發生timing的vio，則可以不用再做route_opt。>>
+set_si_options -delta_delay true -static_noise true -timing_window false -min_delta_delay false -static_noise_threshold_above_low 0.3 -static_noise_threshold_below_high 0.3 -route_xtalk_prevention true -route_xtalk_prevention_threshold 0.3 -analysis_effort low -max_transition_mode normal_slew
+set_fix_hold [all_clocks]
+route_opt -effort high -xtalk_reduction
+derive_pg_connection -power_net "VDD" -ground_net "VSS" -power_pin "VDD" -ground_pin "VSS"
+report_timing
+report_timing -delay_type min
+----------------------
+
+----------------------
+<<此步是必須執行 只是增加補充說明>>
+<<以下為第三次繞線。必須做。>>
+verify_zrt_route
+
+<<上一步的verify_zrt_route是要檢查有沒有DRC vio 若有就做這邊再檢查一次 做完檢查 若仍未過可以把迭代次數設更大 (大概就120太大會壞) 且要再做一次verify_zrt_route>>>
+route_zrt_detail -incremental true -initial_drc_from_input true -max_number_iterations 120
+route_opt -incremental
+derive_pg_connection -power_net "VDD" -ground_net "VSS" -power_pin "VDD" -ground_pin "VSS"
+verify_zrt_route
+
+<<若verify_zrt_route檢查到的vio很少或程度輕微 可以用這個修正 這後面有多個選項 請參照SOP講義89頁 做完檢查>>
+focal_opt -effort high
+derive_pg_connection -power_net "VDD" -ground_net "VSS" -power_pin "VDD" -ground_pin "VSS"
+verify_zrt_route
+
+<<此步是必須執行 只是增加補充說明>>
+<<verify_zrt_route 沒DRC 後看有沒有violation>>
+report_constraints -all 
+
+<<若有violation 則用以下 若太多violation就要回到cts做>>
+route_opt -incremental
+
+<<重複檢查 若有DRC 或violation 則往上看要做甚麼直到沒問題>>
+verify_zrt_route
+report_constraints -all 
+----------------------
+
+report_design -physical
+save_mw_cel -design [format "%s%s" $TOP ".CEL;1"]
+save_mw_cel -design [format "%s%s" $TOP ".CEL;1"] -as "route"
+
+===========================
+DFM (Design For Manufacturing)
+===========================
+insert_stdcell_filler -cell_without_metal {FILL64 FILL32 FILL16 FILL8 FILL4 FILL2 FILL1} -avoid_layer {METAL1 METAL2} -between_std_cells_only -connect_to_power {VDD} -connect_to_ground {VSS}
+set_write_stream_options -map_layer /cad/CBDK/CBDK_IC_Contest_v2.5/Astro/macro.map -child_depth 20 -flatten_via
+write_stream -format gds -lib_name $CHIP_LIB -cells $TOP FAT_10_apr.gds
+remove_unconnected_ports -blast_buses [get_cells -hierarchical *]
+write_verilog -diode_ports -wire_declaration -keep_backslash_before_hiersep -no_physical_only_cells FAS_10_pr.v -unconnected_ports
+write_sdf -version 2.1 -load_delay net FAS_10_apr.sdf
+
+
+
+----------------------------------------------------------------
+
+
+<<apr gate level simulation>>
+ncverilog ./testfixture1_10_apr.v ./new/part1/FAS_syn_10_apr.v -v ./tsmc13.v +max_delays +define+SDFNEW_APR +access+r -clean
+ncverilog ./testfixture2_10_apr.v ./new/part1/FAS_syn_10_apr.v -v ./tsmc13.v +max_delays +define+SDFNEW_APR +access+r -clean

@@ -1,0 +1,34 @@
+<<dft>>
+read_file ../FAS_new.v
+source FAS_10.sdc
+uniquify
+set_fix_multiple_port_nets -all -buffer_constants [get_designs *]
+check_design > ./new/part1/report_dft/check_design.log
+check_timing > ./new/part1/report_dft/check_timing.log
+set test_default_delay 0
+set test_default_bidir_delay 0
+set test_default_strobe 40
+set test_default_period 110
+set_dft_signal -view existing_dft -type ScanClock -timing [ list 45 55] -port clk
+set_dft_signal -view existing_dft -type Reset -port [get_ports rst] -active_state 1
+create_test_protocol -infer_asynch -infer_clock
+dft_drc -verbose > ./new/part1/report_dft/report_drc_pre.rpt
+set_scan_configuration -chain_count 1
+set_scan_configuration -style multiplexed_flip_flop
+set_dft_configuration -fix_clock enable
+set_autofix_configuration -type clock
+compile -scan 
+insert_dft
+report_area -hierarchy > ./new/part1/area_10_dft.log
+report_power > ./new/part1/power_10_dft.log
+report_timing > ./new/part1/timing_10_dft.log
+write -format ddc -hierarchy -output ./new/part1/FAS_syn_10_dft.ddc
+write_scan_def -out ./new/part1/FAS_10_dft.def
+write -hierarchy -format verilog -output ./new/part1/FAS_syn_10_dft.v
+write_test_protocol -output ./new/part1/top_syn_10_dft.spf
+write_sdf -version 2.1 ./new/part1/top_10_dft.sdf
+remove_design -designs 
+
+<dft gate level simulation>
+ncverilog ./testfixture1_10_dft.v ./new/part1/FAS_syn_10_dft.v -v ./tsmc13.v +max_delays +define+SDFNEW_DFT +access+r -clean
+ncverilog ./testfixture2_10_dft.v ./new/part1/FAS_syn_10_dft.v -v ./tsmc13.v +max_delays +define+SDFNEW_DFT +access+r -clean
