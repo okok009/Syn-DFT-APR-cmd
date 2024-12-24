@@ -2,17 +2,16 @@
 ===========================
 setup
 ===========================
-set CHIP_LIB "FAS_APR"
+set CHIP_LIB "FAS_APR_2"
 set TOP "FAS"
 set TF "/cad/CBDK/CBDK_IC_Contest_v2.5/Astro/tsmc13_CIC.tf"
 set CORE_LIB "/cad/CBDK/CBDK_IC_Contest_v2.5/Astro/tsmc13gfsg_fram"
-set GATE_NET "./new/part1/FAS_syn_10_dft.v"
-set SDC "FAS_pr_10.sdc"
+set GATE_NET "./new/part1/FAS_dft_11.v"
+set SDC "FAS_dft_10.sdc"
 set TLU "/cad/CBDK/CBDK_IC_Contest_v2.5/Astro/tluplus/t013s8mg_fsg_typical.tluplus"
 set MAP "/cad/CBDK/CBDK_IC_Contest_v2.5/Astro/tluplus/t013s8mg_fsg.map"
 
-<<此步不確定 都用gui按>>
-create_mw_lib -technology $TF -mw_reference_library $CORE_LIB -bus_naming_style [%d] -open $CHIP_LIB
+create_mw_lib -technology $TF -mw_reference_library $CORE_LIB -bus_naming_style {[%d]} -open $CHIP_LIB
 
 import_designs -format verilog -top $TOP -cel $TOP $GATE_NET
 set_tlu_plus_files -max_tluplus $TLU -tech2itf_map $MAP
@@ -54,7 +53,7 @@ save_mw_cel -design [format "%s%s" $TOP ".CEL;1"] -as "preroute"
 ===========================
 placement (過程中真的要去看Scan Chain的布局)
 ===========================
-read_def ./new/part1/FAS_10_dft.def
+read_def ./new/part1/FAS_dft_11.def
 report_scan_chain
 check_scan_chain
 check_physical_design -for_placement
@@ -184,11 +183,3 @@ remove_unconnected_ports -blast_buses [get_cells -hierarchical *]
 write_verilog -diode_ports -wire_declaration -keep_backslash_before_hiersep -no_physical_only_cells FAS_10_pr.v -unconnected_ports
 write_sdf -version 2.1 -load_delay net FAS_10_apr.sdf
 
-
-
-----------------------------------------------------------------
-
-
-<<apr gate level simulation>>
-ncverilog ./testfixture1_10_apr.v ./new/part1/FAS_syn_10_apr.v -v ./tsmc13.v +max_delays +define+SDFNEW_APR +access+r -clean
-ncverilog ./testfixture2_10_apr.v ./new/part1/FAS_syn_10_apr.v -v ./tsmc13.v +max_delays +define+SDFNEW_APR +access+r -clean

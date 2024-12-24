@@ -1,4 +1,3 @@
-<<dft>>
 read_file ../FAS_new.v
 source FAS_10.sdc
 uniquify
@@ -22,13 +21,14 @@ insert_dft
 report_area -hierarchy > ./new/part1/area_10_dft.log
 report_power > ./new/part1/power_10_dft.log
 report_timing > ./new/part1/timing_10_dft.log
-write -format ddc -hierarchy -output ./new/part1/FAS_syn_10_dft.ddc
-write_scan_def -out ./new/part1/FAS_10_dft.def
-write -hierarchy -format verilog -output ./new/part1/FAS_syn_10_dft.v
-write_test_protocol -output ./new/part1/top_syn_10_dft.spf
-write_sdf -version 2.1 ./new/part1/top_10_dft.sdf
-remove_design -designs 
+write -format ddc -hierarchy -output ./new/part1/FAS_dft_10.ddc
+write_scan_def -out ./new/part1/FAS_dft_10.def
+write -hierarchy -format verilog -output ./new/part1/FAS_dft_10.v
+write_test_protocol -output ./new/part1/FAS_dft_10.spf
+write_sdc FAS_dft_10.sdc
+write_sdf -version 2.1 ./new/part1/FAS_dft_10.sdf
+remove_design -designs
 
 <dft gate level simulation>
-ncverilog ./testfixture1_10_dft.v ./new/part1/FAS_syn_10_dft.v -v ./tsmc13.v +max_delays +define+SDFNEW_DFT +access+r -clean
-ncverilog ./testfixture2_10_dft.v ./new/part1/FAS_syn_10_dft.v -v ./tsmc13.v +max_delays +define+SDFNEW_DFT +access+r -clean
+ncverilog ./testfixture1_10_dft.v ./new/part1/FAS_dft_10.v -v ./tsmc13.v +max_delays +define+SDFNEW_DFT +access+r -clean
+ncverilog ./testfixture2_10_dft.v ./new/part1/FAS_dft_10.v -v ./tsmc13.v +max_delays +define+SDFNEW_DFT +access+r -clean
