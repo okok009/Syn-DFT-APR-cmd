@@ -1,12 +1,12 @@
 <<apr>>
 ===========================
-setup
+setup (注意SDC是吃DFT做完寫入的心的SDC)
 ===========================
 set CHIP_LIB "FAS_APR_2"
 set TOP "FAS"
 set TF "/cad/CBDK/CBDK_IC_Contest_v2.5/Astro/tsmc13_CIC.tf"
 set CORE_LIB "/cad/CBDK/CBDK_IC_Contest_v2.5/Astro/tsmc13gfsg_fram"
-set GATE_NET "./new/part1/FAS_dft_11.v"
+set GATE_NET "./new/part1/FAS_dft_10.v"
 set SDC "FAS_dft_10.sdc"
 set TLU "/cad/CBDK/CBDK_IC_Contest_v2.5/Astro/tluplus/t013s8mg_fsg_typical.tluplus"
 set MAP "/cad/CBDK/CBDK_IC_Contest_v2.5/Astro/tluplus/t013s8mg_fsg.map"
@@ -25,20 +25,32 @@ save_mw_cel -design [format "%s%s" $TOP ".CEL;1"]
 save_mw_cel -design [format "%s%s" $TOP ".CEL;1"] -as "design_setup"
 
 ===========================
-preroute (包含floorplan, powerplan)
+floorplan, powerplan
 ===========================
 set CORE_PAD_SPACE 10
 create_floorplan -core_aspect_ratio 1 -core_utilization 0.7 -flip_first_row -left_io2core $CORE_PAD_SPACE -right_io2core $CORE_PAD_SPACE -bottom_io2core $CORE_PAD_SPACE -top_io2core $CORE_PAD_SPACE
 create_fp_placement -effort high -timing_driven -congestion_driven
+
+----------------------
+開gui看個Congetstion Map 0~7 盡量 0
+----------------------
 derive_pg_connection -power_net "VDD" -ground_net "VSS" -power_pin "VDD" -ground_pin "VSS"
 set_fp_rail_constraints -add_layer -layer METAL5 -direction horizontal -max_strap 1 -min_strap 1 -max_width 2 -min_width 2 -spacing minimum
 set_fp_rail_constraints -add_layer -layer METAL4 -direction vertical -max_strap 1 -min_strap 1 -max_width 2 -min_width 2 -spacing minimum
 set_fp_rail_constraints -set_ring -nets {VDD VSS} -horizontal_ring_layer METAL5 -vertical_ring_layer METAL4 -ring_width 2 -ring_spacing 2 -ring_offset 2 -extend_strap core_ring
 set_fp_rail_constraints -set_global -no_routing_over_hard_macros -no_same_width_sizing -keep_ring_outside_core
 synthesize_fp_rail -nets {VDD VSS} -voltage_supply 1.2 -synthesize_power_plan -power_budget 30 -use_pins_as_pads -use_strap_ends_as_pads -ignore_blockages
+
+----------------------
+開gui看個IR Drop 都要小於Supply Votage 的10% 若超過10% 則再做一次synthesize_fp_rail 後面加 -lowest_voltage_drop
+----------------------
 commit_fp_rail
 save_mw_cel -design [format "%s%s" $TOP ".CEL;1"]
 save_mw_cel -design [format "%s%s" $TOP ".CEL;1"] -as "design_planning"
+
+===========================
+preroute
+===========================
 preroute_instances -ignore_pads -ignore_cover_cells -primary_routing_layer pin
 preroute_standard_cells -extend_for_multiple_connections -extension_gap 16 -connect horizontal -remove_floating_pieces -do_not_route_over_macros -fill_empty_rows -port_filter_mode off -cell_master_filter_mode off -cell_instance_filter_mode off -voltage_area_filter_mode off -route_type {P/G Std. Cell Pin Conn}
 set_pnet_options -partial {METAL5 METAL4}
@@ -53,26 +65,29 @@ save_mw_cel -design [format "%s%s" $TOP ".CEL;1"] -as "preroute"
 ===========================
 placement (過程中真的要去看Scan Chain的布局)
 ===========================
-read_def ./new/part1/FAS_dft_11.def
+read_def ./new/part1/FAS_dft_10.def
 report_scan_chain
 check_scan_chain
 check_physical_design -for_placement
 check_physical_constraints
+source add_tie.tcl
 connect_tie_cells -tie_high_lib_cell TIEHI -tie_low_lib_cell TIELO -max_fanout 5 -obj_type cell_inst -objects [get_cells -hier *]
-place_opt -effort high -optimize_dft -congestion -power
+
+<<開始place 若要可以優話Scan Chain的話加上-optimize_dft 另外在cts也可以優化Scan Chain>>
+place_opt -effort high -congestion -power -optimize_dft
 derive_pg_connection -power_net "VDD" -ground_net "VSS" -power_pin "VDD" -ground_pin "VSS"
 
 ----------------------
-<<若對congestion不滿意再修>>
+<<檢查Congetstion Map 若對Congestion 不滿意再修>>
 refine_placement -perturbation_lecl high -congestion_effort high
 
-<<以下建議到cts再修>>
+<<先用report timing看需不需要修 但建議到cts再修 如果要在這修就再執行後面兩行>>
+report_timing
+report_timing -delay_type min
 set_fix_hold [all_clocks]
 psynopt
-report_timing -delay_type min
-report_timing
 
-<<執行下方report後觀察vio是哪種 如果只是timing 就等cts再修 若不是則回到上面重新place_opt>>
+<<先用report constraints 觀察vio是哪種 如果只是timing 就等cts再修 若不是則執行下面的psynopt 或重新place_opt>>
 report_constraints -all
 psynopt -only_design_rule
 ----------------------
@@ -93,7 +108,7 @@ report_clock_tree -summary
 ----------------------
 <<此步是必須執行 只是增加補充說明>>
 <<其中的-operating_condition min 可以第二次再來加 主要是有hold time vio再加>>
-clock_opt -fix_hold_all_clocks -congestion -optimize_dft -no_clock_route -operating_condition min
+clock_opt -fix_hold_all_clocks -congestion -no_clock_route -operating_condition min -optimize_dft
 ----------------------
 
 derive_pg_connection -power_net "VDD" -ground_net "VSS" -power_pin "VDD" -ground_pin "VSS"
@@ -103,7 +118,7 @@ report_timing -delay_type min
 report_constraints -all
 
 ----------------------
-<<若跑完timing沒過 可以再跑一次clock_opt 這次加上-only_psyn 或optimize_clock_tree>>
+<<若跑完timing沒過 可以再跑一次clock_opt 這次加上-only_psyn 或跑optimize_clock_tree>>
 1. clock_opt -only_psyn -fix_hold_all_clocks -congestion -no_clock_route
 2. optimize_clock_tree -buffer_sizing -buffer_relocation -gate_sizing -gate_relocation -delay_insertion -search_repair_loop 2 -operating_condition max -routed_clock_stage None
 derive_pg_connection -power_net "VDD" -ground_net "VSS" -power_pin "VDD" -ground_pin "VSS"
@@ -182,4 +197,3 @@ write_stream -format gds -lib_name $CHIP_LIB -cells $TOP FAT_10_apr.gds
 remove_unconnected_ports -blast_buses [get_cells -hierarchical *]
 write_verilog -diode_ports -wire_declaration -keep_backslash_before_hiersep -no_physical_only_cells FAS_10_pr.v -unconnected_ports
 write_sdf -version 2.1 -load_delay net FAS_10_apr.sdf
-

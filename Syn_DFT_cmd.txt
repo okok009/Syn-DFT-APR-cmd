@@ -1,3 +1,4 @@
+<<dft>>
 read_file ../FAS_new.v
 source FAS_10.sdc
 uniquify
@@ -31,4 +32,3 @@ remove_design -designs
 
 <dft gate level simulation>
 ncverilog ./testfixture1_10_dft.v ./new/part1/FAS_dft_10.v -v ./tsmc13.v +max_delays +define+SDFNEW_DFT +access+r -clean
-ncverilog ./testfixture2_10_dft.v ./new/part1/FAS_dft_10.v -v ./tsmc13.v +max_delays +define+SDFNEW_DFT +access+r -clean
